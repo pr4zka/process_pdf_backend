@@ -115,6 +115,6 @@ def process_pdf(file):
     #     print("Precio unitario:", precio_unitario)
     #     print("Valor:", valor)
 
-process_pdf('factura2.pdf')
+process_pdf('factura.pdf')
 
 

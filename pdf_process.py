@@ -36,61 +36,6 @@ def preprocess(image):
 
     return img
 
-class PDF(FPDF):
-    def rounded_rect(self, x, y, w, h, r, style = '', corners = '1234'):
-        
-        k = self.k
-        hp = self.h
-        if(style=='F'):
-            op='f'
-        elif(style=='FD' or style=='DF'):
-            op='B'
-        else:
-            op='S'
-        myArc = 4/3 * (sqrt(2) - 1)
-        self._out('%.2F %.2F m' % ((x+r)*k,(hp-y)*k))
-
-        xc = x+w-r
-        yc = y+r
-        self._out('%.2F %.2F l' % (xc*k,(hp-y)*k))
-        if '2' not in corners:
-            self._out('%.2F %.2F l' % ((x+w)*k,(hp-y)*k))
-        else:
-            self._arc(xc + r*myArc, yc - r, xc + r, yc - r*myArc, xc + r, yc)
-
-        xc = x+w-r
-        yc = y+h-r
-        self._out('%.2F %.2F l' % ((x+w)*k,(hp-yc)*k))
-        if '3' not in corners:
-            self._out('%.2F %.2F l' % ((x+w)*k,(hp-(y+h))*k))
-        else:
-            self._arc(xc + r, yc + r*myArc, xc + r*myArc, yc + r, xc, yc + r)
-
-        xc = x+r
-        yc = y+h-r
-        self._out('%.2F %.2F l' % (xc*k,(hp-(y+h))*k))
-        if '4' not in corners:
-            self._out('%.2F %.2F l' % (x*k,(hp-(y+h))*k))
-        else:
-            self._arc(xc - r*myArc, yc + r, xc - r, yc + r*myArc, xc - r, yc)
-
-        xc = x+r 
-        yc = y+r
-        self._out('%.2F %.2F l' % (x*k,(hp-yc)*k))
-        if '1' not in corners:
-            self._out('%.2F %.2F l' % (x*k,(hp-y)*k))
-            self._out('%.2F %.2F l' % ((x+r)*k,(hp-y)*k))
-        else:
-            self._arc(xc - r, yc - r*myArc, xc - r*myArc, yc - r, xc, yc - r)
-        self._out(op)
-    
-
-    def _arc(self, x1, y1, x2, y2, x3, y3):
-    
-        h = self.h
-        self._out('%.2F %.2F %.2F %.2F %.2F %.2F c ' % (x1*self.k, (h-y1)*self.k,
-            x2*self.k, (h-y2)*self.k, x3*self.k, (h-y3)*self.k))
-
 # Función para crear el PDF
 def create_pdf(productos, total, fecha_transaccion, contacto, nit_contacto):
     # Crear un nuevo objeto PDF
@@ -171,7 +116,7 @@ def create_pdf(productos, total, fecha_transaccion, contacto, nit_contacto):
 #         print(f"Total: ${total_match.group(1).replace(',', '')}")
 #     else:
 #         print("Total no encontrado.")
-def process_pdf(file):
+# def process_pdf(file):
     pages = convert_from_path(file)
     texto_completo = ''
 
@@ -229,6 +174,81 @@ def process_pdf(file):
         print(f"Total: ${total_match.group(1).replace(',', '')}")
     else:
         print("Total no encontrado.")
+def process_pdf(file):
+    pages = convert_from_path(file)
+    texto_completo = ''
+    data = {
+        "fecha": "",
+        "condicion": "",
+        "razon_social": "",
+        "ruc": "",
+        "direccion": "",
+        "telefono": "",
+        "items": []
+    }
 
+    for page in pages:
+        image = preprocess(page)
+        texto_pagina = pytesseract.image_to_string(image)
+        texto_completo += texto_pagina + '\n\n'
+        print('texto_completo', texto_completo)
+    nombres_productos = []
 
-process_pdf('test2.pdf')
+    cabecera_match = re.search(r"Fecha de transaccién (.*?)Contacto (.*?)NIT del Contacto (.*?)Vendedor (.*?)Método de pago (.*?)\n", texto_completo, re.DOTALL)
+    if cabecera_match:
+        fecha_transaccion = cabecera_match.group(1).strip()
+        contacto = cabecera_match.group(2).strip()
+        nit_contacto = cabecera_match.group(3).strip()
+        vendedor = cabecera_match.group(4).strip()
+        metodo_pago = cabecera_match.group(5).strip()
+
+        data["fecha"] = fecha_transaccion
+        data["condicion"] = metodo_pago
+        data["razon_social"] = contacto
+        data["ruc"] = nit_contacto
+
+        print(f"Fecha de emision: {fecha_transaccion}")
+        print(f"Nombre o Razon Social: {contacto}")
+        print(f"Ruc: {nit_contacto}")
+        # print(f"Vendedor: {vendedor}")
+        print(f"Condicion de venta: {metodo_pago}")
+    else:
+        print("Información de la cabecera no encontrada.")
+
+    # Extraer toda la información de productos
+    productos_info_match = re.search(r"Productos Cantidad Precio unitario Valor\n([\s\S]+?)(?=\nTotal:)", texto_completo)
+
+    if productos_info_match:
+        productos_info = productos_info_match.group(1).strip().split("\n")
+        productos = []
+        for producto_info in productos_info:
+            # Asumiendo el formato: [Nombre] [Cantidad] $[Precio unitario] $[Valor]
+            # Se ajusta para manejar mejor los espacios inesperados
+            match = re.match(r"(.*?)\s+(\d+)\s*\$\s*([\d,]+)\s*\$\s*([\d,]+)", producto_info)
+            if match:
+                descripcion = match.group(1)
+                cantidad = int(match.group(2))
+                precio_unitario = int(match.group(3).replace(",", "").replace("$", ""))
+                total = int(match.group(4).replace(",", "").replace("$", ""))
+                items = {
+                    "descripcion": descripcion,
+                    "cantidad": cantidad,
+                    "precio_unitario": precio_unitario,
+                    "total_10": 0,  # 10% si no hay enviar 0 pero enviar
+                    "total_5": 0,  # 5% si no hay enviar 0 pero enviar
+                    "total_0": total  # exentas
+                }
+                productos.append(items)
+
+        data["items"] = productos
+        print('dataaaa', data)
+        # Imprimir detalles de productos
+        for producto in productos:
+            # print(f"Producto: {producto['Producto']}, Cantidad: {producto['Cantidad']}, Precio Unitario: ${producto['Precio Unitario']}, Valor: ${producto['Valor']}")
+            return producto
+    else:
+        print("Información de productos no encontrada.")
+    print('data', data)
+    return data
+
+process_pdf('test3.pdf')
